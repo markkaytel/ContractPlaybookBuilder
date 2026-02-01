@@ -1,0 +1,42 @@
+{
+  "AGENTS.md": {
+    "template": "7e0e1b2bdf0c54e7c2c3ed9a903136c4",
+    "installed": "7e0e1b2bdf0c54e7c2c3ed9a903136c4"
+  },
+  "commands\\verify.md": {
+    "template": "b2484fd5c8f90b32cf4aadfc928d34ef",
+    "installed": "b2484fd5c8f90b32cf4aadfc928d34ef"
+  },
+  "hooks\\block-dangerous-commands.py": {
+    "template": "fa1d54c8368b3c016eed51e0b6b429b0",
+    "installed": "fa1d54c8368b3c016eed51e0b6b429b0"
+  },
+  "hooks\\enforce-skill-use.py": {
+    "template": "28a52f7cc0ed82a597fe09b009ae04f3",
+    "installed": "28a52f7cc0ed82a597fe09b009ae04f3"
+  },
+  "hooks\\enforce-uv-install.sh": {
+    "template": "0ccf9f589823d5847cf107bb7194cff8",
+    "installed": "0ccf9f589823d5847cf107bb7194cff8"
+  },
+  "hooks\\enforce-uv-run.py": {
+    "template": "f2137eef2558efa07ad786518fa9cbdf",
+    "installed": "f2137eef2558efa07ad786518fa9cbdf"
+  },
+  "settings\\claude.json": {
+    "template": "bd57aeac70cc50782697c78512a08e68",
+    "installed": "bd57aeac70cc50782697c78512a08e68"
+  },
+  "settings\\codex.toml": {
+    "template": "deae9b78e5a839f10499df8763e0711c",
+    "installed": "deae9b78e5a839f10499df8763e0711c"
+  },
+  "settings\\gemini.json": {
+    "template": "93d707763b8dc2a42eba86276ef70cd0",
+    "installed": "93d707763b8dc2a42eba86276ef70cd0"
+  },
+  "settings/claude.json": {
+    "template": "4b3ff1d8d301cdf486cd70e991ab836d",
+    "installed": "d30724ad4069ea36f77cc9a5778f13e2"
+  }
+}

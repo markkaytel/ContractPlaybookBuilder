@@ -18,11 +18,20 @@ const progressSubstatus = document.getElementById('progress-substatus');
 const progressReassurance = document.getElementById('progress-reassurance');
 const errorMessage = document.getElementById('error-message');
 
+// Guidance Documents Elements
+const guidanceInput = document.getElementById('guidance-input');
+const guidanceDropZone = document.getElementById('guidance-drop-zone');
+const guidanceFilesList = document.getElementById('guidance-files-list');
+const guidanceFilesItems = document.getElementById('guidance-files-items');
+const clearGuidanceBtn = document.getElementById('clear-guidance-btn');
+
 // State
 let currentJobId = null;
 let statusPollInterval = null;
 let reassuranceInterval = null;
 let reassuranceIndex = 0;
+let selectedResources = [];
+let searchResults = [];
 
 // Reassurance messages that rotate while processing
 const reassuranceMessages = [
@@ -57,6 +66,95 @@ dropZone.addEventListener('drop', (e) => {
         fileInput.files = files;
         handleFileSelect();
     }
+});
+
+// Guidance Documents Upload Handling
+guidanceInput.addEventListener('change', handleGuidanceFilesSelect);
+
+guidanceDropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    guidanceDropZone.classList.add('dragover');
+});
+
+guidanceDropZone.addEventListener('dragleave', () => {
+    guidanceDropZone.classList.remove('dragover');
+});
+
+guidanceDropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    guidanceDropZone.classList.remove('dragover');
+
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        // Add to existing files
+        const dt = new DataTransfer();
+        
+        // Add existing files
+        for (let i = 0; i < guidanceInput.files.length; i++) {
+            dt.items.add(guidanceInput.files[i]);
+        }
+        
+        // Add new files
+        for (let i = 0; i < files.length; i++) {
+            dt.items.add(files[i]);
+        }
+        
+        guidanceInput.files = dt.files;
+        handleGuidanceFilesSelect();
+    }
+});
+
+function handleGuidanceFilesSelect() {
+    const files = guidanceInput.files;
+    
+    if (files.length === 0) {
+        guidanceFilesList.classList.add('hidden');
+        return;
+    }
+    
+    guidanceFilesList.classList.remove('hidden');
+    
+    const countElement = guidanceFilesList.querySelector('.guidance-count');
+    countElement.textContent = `${files.length} document${files.length !== 1 ? 's' : ''} selected`;
+    
+    guidanceFilesItems.innerHTML = '';
+    
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileItem = document.createElement('div');
+        fileItem.className = 'guidance-file-item';
+        fileItem.innerHTML = `
+            <div class="guidance-file-info">
+                <span class="guidance-file-name">${escapeHtml(file.name)}</span>
+                <span class="guidance-file-size">${formatFileSize(file.size)}</span>
+            </div>
+            <button type="button" class="remove-guidance-file" data-index="${i}">×</button>
+        `;
+        
+        const removeBtn = fileItem.querySelector('.remove-guidance-file');
+        removeBtn.addEventListener('click', () => removeGuidanceFile(i));
+        
+        guidanceFilesItems.appendChild(fileItem);
+    }
+}
+
+function removeGuidanceFile(index) {
+    const dt = new DataTransfer();
+    const files = guidanceInput.files;
+    
+    for (let i = 0; i < files.length; i++) {
+        if (i !== index) {
+            dt.items.add(files[i]);
+        }
+    }
+    
+    guidanceInput.files = dt.files;
+    handleGuidanceFilesSelect();
+}
+
+clearGuidanceBtn.addEventListener('click', () => {
+    guidanceInput.value = '';
+    handleGuidanceFilesSelect();
 });
 
 function handleFileSelect() {
@@ -99,6 +197,12 @@ uploadForm.addEventListener('submit', async (e) => {
     formData.append('agreement_type', document.getElementById('agreement-type').value);
     formData.append('user_role', document.getElementById('user-role').value);
     formData.append('risk_tolerance', document.getElementById('risk-tolerance').value);
+    
+    // Add guidance documents if any
+    const guidanceFiles = guidanceInput.files;
+    for (let i = 0; i < guidanceFiles.length; i++) {
+        formData.append('guidance_files', guidanceFiles[i]);
+    }
 
     // Disable button and show progress
     generateBtn.disabled = true;
@@ -118,6 +222,25 @@ uploadForm.addEventListener('submit', async (e) => {
         }
 
         currentJobId = uploadData.job_id;
+
+        // Save selected resources if any
+        if (selectedResources.length > 0) {
+            try {
+                await fetch('/api/resources/save', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        job_id: currentJobId,
+                        selected_urls: selectedResources.map(r => r.link)
+                    })
+                });
+            } catch (error) {
+                console.warn('Failed to save resources:', error);
+                // Continue anyway - not critical
+            }
+        }
 
         // Show progress section
         showSection('progress');
@@ -277,6 +400,241 @@ function startOver() {
     updateProgress(0, 'Starting analysis...');
 
     showSection('upload');
+}
+
+// Web Search Functionality
+const searchModal = document.getElementById('search-modal');
+const searchResourcesBtn = document.getElementById('search-resources-btn');
+const closeSearchModal = document.getElementById('close-search-modal');
+const cancelSearchBtn = document.getElementById('cancel-search-btn');
+const saveResourcesBtn = document.getElementById('save-resources-btn');
+const searchLoading = document.getElementById('search-loading');
+const searchError = document.getElementById('search-error');
+const searchErrorMessage = document.getElementById('search-error-message');
+const searchResultsDiv = document.getElementById('search-results');
+const searchResultsList = document.getElementById('search-results-list');
+const selectedResourcesDisplay = document.getElementById('selected-resources-display');
+const selectedResourcesList = document.getElementById('selected-resources-list');
+const clearResourcesBtn = document.getElementById('clear-resources-btn');
+
+// Search button click
+searchResourcesBtn.addEventListener('click', async () => {
+    const agreementType = document.getElementById('agreement-type').value;
+    const searchInstructions = document.getElementById('search-instructions').value.trim();
+    
+    // Show modal
+    searchModal.classList.remove('hidden');
+    
+    // Show loading state
+    searchLoading.classList.remove('hidden');
+    searchError.classList.add('hidden');
+    searchResultsDiv.classList.add('hidden');
+    
+    try {
+        const response = await fetch('/api/search', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                agreement_type: agreementType,
+                search_instructions: searchInstructions
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || 'Search failed');
+        }
+        
+        searchResults = data.results;
+        displaySearchResults(searchResults);
+        
+    } catch (error) {
+        searchLoading.classList.add('hidden');
+        searchError.classList.remove('hidden');
+        searchErrorMessage.textContent = error.message;
+    }
+});
+
+// Display search results
+function displaySearchResults(results) {
+    searchLoading.classList.add('hidden');
+    searchError.classList.add('hidden');
+    searchResultsDiv.classList.remove('hidden');
+    
+    searchResultsList.innerHTML = '';
+    
+    if (results.length === 0) {
+        searchResultsList.innerHTML = '<p style="text-align: center; color: var(--text-muted);">No results found. Try a different agreement type.</p>';
+        return;
+    }
+    
+    results.forEach((result, index) => {
+        const resultItem = document.createElement('div');
+        resultItem.className = 'search-result-item';
+        resultItem.dataset.index = index;
+        
+        // Check if already selected
+        const isSelected = selectedResources.some(r => r.link === result.link);
+        if (isSelected) {
+            resultItem.classList.add('selected');
+        }
+        
+        resultItem.innerHTML = `
+            <div class="search-result-header">
+                <input type="checkbox" class="search-result-checkbox" ${isSelected ? 'checked' : ''} data-index="${index}">
+                <div class="search-result-content">
+                    <div class="search-result-title">${escapeHtml(result.title)}</div>
+                    <div class="search-result-url">${escapeHtml(result.display_link)}</div>
+                    <div class="search-result-snippet">${escapeHtml(result.snippet)}</div>
+                </div>
+            </div>
+        `;
+        
+        // Click handler for the whole item
+        resultItem.addEventListener('click', (e) => {
+            if (e.target.tagName !== 'INPUT') {
+                const checkbox = resultItem.querySelector('.search-result-checkbox');
+                checkbox.checked = !checkbox.checked;
+                checkbox.dispatchEvent(new Event('change'));
+            }
+        });
+        
+        // Checkbox change handler
+        const checkbox = resultItem.querySelector('.search-result-checkbox');
+        checkbox.addEventListener('change', (e) => {
+            e.stopPropagation();
+            toggleResourceSelection(index, resultItem);
+        });
+        
+        searchResultsList.appendChild(resultItem);
+    });
+}
+
+// Toggle resource selection
+function toggleResourceSelection(index, itemElement) {
+    const result = searchResults[index];
+    const existingIndex = selectedResources.findIndex(r => r.link === result.link);
+    
+    if (existingIndex >= 0) {
+        // Remove from selection
+        selectedResources.splice(existingIndex, 1);
+        itemElement.classList.remove('selected');
+    } else {
+        // Add to selection
+        selectedResources.push(result);
+        itemElement.classList.add('selected');
+    }
+    
+    updateSelectedResourcesDisplay();
+}
+
+// Update selected resources display
+function updateSelectedResourcesDisplay() {
+    const count = selectedResources.length;
+    const countElement = document.querySelector('.selected-count');
+    
+    if (count === 0) {
+        selectedResourcesDisplay.classList.add('hidden');
+        return;
+    }
+    
+    selectedResourcesDisplay.classList.remove('hidden');
+    countElement.textContent = `${count} resource${count !== 1 ? 's' : ''} selected`;
+    
+    selectedResourcesList.innerHTML = '';
+    
+    selectedResources.forEach((resource, index) => {
+        const item = document.createElement('div');
+        item.className = 'selected-resource-item';
+        item.innerHTML = `
+            <div class="selected-resource-info">
+                <div class="selected-resource-title">${escapeHtml(resource.title)}</div>
+                <div class="selected-resource-url">${escapeHtml(resource.link)}</div>
+            </div>
+            <button type="button" class="remove-resource" data-index="${index}">×</button>
+        `;
+        
+        const removeBtn = item.querySelector('.remove-resource');
+        removeBtn.addEventListener('click', () => {
+            selectedResources.splice(index, 1);
+            updateSelectedResourcesDisplay();
+            
+            // Update search results display if modal is open
+            if (!searchModal.classList.contains('hidden')) {
+                displaySearchResults(searchResults);
+            }
+        });
+        
+        selectedResourcesList.appendChild(item);
+    });
+}
+
+// Save selected resources
+saveResourcesBtn.addEventListener('click', async () => {
+    if (!currentJobId) {
+        // No job yet - just close modal and keep selections
+        closeSearchModalHandler();
+        return;
+    }
+    
+    // Save to backend
+    try {
+        const response = await fetch('/api/resources/save', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                job_id: currentJobId,
+                selected_urls: selectedResources.map(r => r.link)
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to save resources');
+        }
+        
+        closeSearchModalHandler();
+        
+    } catch (error) {
+        alert('Failed to save resources: ' + error.message);
+    }
+});
+
+// Clear all resources
+clearResourcesBtn.addEventListener('click', () => {
+    selectedResources = [];
+    updateSelectedResourcesDisplay();
+    
+    // Update search results if modal is open
+    if (!searchModal.classList.contains('hidden')) {
+        displaySearchResults(searchResults);
+    }
+});
+
+// Close modal handlers
+function closeSearchModalHandler() {
+    searchModal.classList.add('hidden');
+}
+
+closeSearchModal.addEventListener('click', closeSearchModalHandler);
+cancelSearchBtn.addEventListener('click', closeSearchModalHandler);
+
+// Close modal on backdrop click
+searchModal.addEventListener('click', (e) => {
+    if (e.target === searchModal) {
+        closeSearchModalHandler();
+    }
+});
+
+// Utility function to escape HTML
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // Health check on load

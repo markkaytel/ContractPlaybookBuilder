@@ -30,12 +30,17 @@ ALLOWED_EXTENSIONS = {"pdf", "docx", "xlsx"}
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
 
-# Fallback: OpenAI (if Anthropic not configured)
+# OpenAI or OpenAI-compatible API
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "")  # Custom API endpoint (optional)
 
 # Which provider to use (anthropic or openai)
 AI_PROVIDER = os.environ.get("AI_PROVIDER", "anthropic" if ANTHROPIC_API_KEY else "openai")
+
+# Google Custom Search API (for web research)
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
+GOOGLE_SEARCH_ENGINE_ID = os.environ.get("GOOGLE_SEARCH_ENGINE_ID", "")
 
 # Ensure directories exist (skip on Vercel where filesystem is read-only)
 if not IS_VERCEL:

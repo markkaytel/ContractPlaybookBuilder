@@ -43,6 +43,36 @@
                         </div>
                     </div>
 
+                    <!-- Guidance Documents Section -->
+                    <div class="guidance-section">
+                        <h3>Guidance Documents (Optional)</h3>
+                        <p class="guidance-help-text">Upload internal playbooks, policies, or guidelines to inform the analysis with your organization's standards and preferences.</p>
+                        
+                        <div class="guidance-drop-zone" id="guidance-drop-zone">
+                            <div class="guidance-drop-content">
+                                <svg class="upload-icon-small" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="17 8 12 3 7 8"/>
+                                    <line x1="12" y1="3" x2="12" y2="15"/>
+                                </svg>
+                                <p class="guidance-drop-text">Drop guidance documents here or click to browse</p>
+                                <label class="guidance-input-label">
+                                    <input type="file" id="guidance-input" name="guidance_files" multiple accept=".pdf,.docx,.xlsx">
+                                    <span>Choose Files</span>
+                                </label>
+                                <p class="guidance-file-types">Multiple files supported: PDF, DOCX, XLSX</p>
+                            </div>
+                        </div>
+                        
+                        <div id="guidance-files-list" class="guidance-files-list hidden">
+                            <div class="guidance-files-header">
+                                <span class="guidance-count">0 documents selected</span>
+                                <button type="button" class="clear-guidance" id="clear-guidance-btn">Clear all</button>
+                            </div>
+                            <div id="guidance-files-items" class="guidance-files-items"></div>
+                        </div>
+                    </div>
+
                     <div class="options-section">
                         <h3>Configuration Options</h3>
 
@@ -80,6 +110,41 @@
                                 <option value="Moderate" selected>Moderate (Balanced)</option>
                                 <option value="High">High (Aggressive)</option>
                             </select>
+                        </div>
+                    </div>
+
+                    <!-- Web Search Section -->
+                    <div class="web-search-section">
+                        <h3>Search for Legal Resources (Optional)</h3>
+                        <p class="search-help-text">Search the web for resources like checklists, articles, and guides to enhance your playbook</p>
+                        
+                        <div class="form-group">
+                            <label for="search-instructions">What types of resources would be helpful? (Optional)</label>
+                            <textarea 
+                                id="search-instructions" 
+                                name="search_instructions" 
+                                rows="3" 
+                                placeholder="Example: Look for SaaS contract negotiation guides, indemnification clause best practices, liability cap examples for enterprise software agreements..."
+                                class="search-instructions-textarea"
+                            ></textarea>
+                            <p class="search-instructions-hint">Describe the specific types of information, examples, or guidance you're looking for</p>
+                        </div>
+                        
+                        <button type="button" class="btn btn-secondary" id="search-resources-btn">
+                            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"/>
+                                <path d="m21 21-4.35-4.35"/>
+                            </svg>
+                            Search for Resources
+                        </button>
+                        
+                        <!-- Selected Resources Display -->
+                        <div id="selected-resources-display" class="selected-resources hidden">
+                            <div class="selected-resources-header">
+                                <span class="selected-count">0 resources selected</span>
+                                <button type="button" class="clear-resources" id="clear-resources-btn">Clear all</button>
+                            </div>
+                            <div id="selected-resources-list" class="selected-resources-list"></div>
                         </div>
                     </div>
 
@@ -124,6 +189,43 @@
                     Generate Another Playbook
                 </button>
             </section>
+
+            <!-- Search Results Modal -->
+            <div id="search-modal" class="modal hidden">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>Search Results</h2>
+                        <button type="button" class="modal-close" id="close-search-modal">×</button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="search-loading" class="search-loading hidden">
+                            <div class="spinner">
+                                <svg viewBox="0 0 50 50">
+                                    <circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-dasharray="80, 200" stroke-dashoffset="0">
+                                        <animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1.5s" repeatCount="indefinite"/>
+                                    </circle>
+                                </svg>
+                            </div>
+                            <p>Searching for relevant legal resources...</p>
+                        </div>
+                        
+                        <div id="search-error" class="search-error hidden">
+                            <p id="search-error-message"></p>
+                        </div>
+                        
+                        <div id="search-results" class="search-results hidden">
+                            <p class="search-results-info">Select resources to include in your playbook analysis:</p>
+                            <div id="search-results-list"></div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" id="cancel-search-btn">Cancel</button>
+                        <button type="button" class="btn btn-primary" id="save-resources-btn">
+                            Save Selected Resources
+                        </button>
+                    </div>
+                </div>
+            </div>
 
             <!-- Error Section -->
             <section id="error-section" class="card hidden">

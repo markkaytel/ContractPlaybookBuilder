@@ -36,6 +36,7 @@ A contract playbook is a strategic guide that documents your organization's nego
 
 - **Multi-format Upload**: Supports PDF, Word (.docx), and Excel (.xlsx) files
 - **Claude AI Analysis**: Uses Anthropic's Claude for deep contract understanding
+- **Web Research Integration**: Search and select relevant legal articles, checklists, and guides to enhance AI analysis
 - **Topic-Based Organization**: Separate sheets for each contract area (Indemnification, Liability, IP, etc.)
 - **Professional Output**: Excel playbooks matching industry standards
 - **Dual Perspective**: Analysis from both customer and provider viewpoints
@@ -104,6 +105,7 @@ venv\Scripts\activate         # Windows CMD
 
 # Install dependencies
 pip install -r requirements.txt
+
 ```
 
 ### Step 3: Configure API Key
@@ -174,9 +176,89 @@ If you prefer OpenAI, set these instead:
 ```
 OPENAI_API_KEY=sk-your-openai-key
 OPENAI_MODEL=gpt-4o
+AI_PROVIDER=openai
 ```
 
 The app will automatically use OpenAI if no Anthropic key is configured.
+
+### OpenAI-Compatible APIs
+
+You can use **any OpenAI-compatible API** by setting a custom base URL. This includes:
+
+- **Local Models**: LM Studio, Ollama, LocalAI, Jan
+- **Cloud Providers**: OpenAI, Azure OpenAI, Together.ai, Groq, DeepInfra
+- **Self-Hosted**: vLLM, Text Generation Inference, FastChat
+
+**Quick Example (LM Studio):**
+```bash
+OPENAI_API_KEY=lm-studio
+OPENAI_BASE_URL=http://localhost:1234/v1
+OPENAI_MODEL=llama-3.1-8b-instruct
+AI_PROVIDER=openai
+```
+
+**Quick Example (Ollama):**
+```bash
+OPENAI_API_KEY=ollama
+OPENAI_BASE_URL=http://localhost:11434/v1
+OPENAI_MODEL=llama3.1
+AI_PROVIDER=openai
+```
+
+**📖 For detailed setup instructions, model recommendations, and troubleshooting, see [OPENAI_COMPATIBLE_SETUP.md](OPENAI_COMPATIBLE_SETUP.md)**
+
+This comprehensive guide includes:
+- Step-by-step setup for LM Studio, Ollama, and other providers
+- Model recommendations and quality comparisons
+- Performance expectations and hardware requirements
+- Troubleshooting common issues
+- Configuration examples for 10+ different providers
+
+### Google Search Setup (Optional)
+
+The web research feature allows you to search for and include relevant legal resources in your playbook generation. This is **optional** but can significantly enhance the quality of the output.
+
+**Step 1: Get a Google API Key**
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select an existing one
+3. Enable the **Custom Search API**:
+   - Go to "APIs & Services" → "Library"
+   - Search for "Custom Search API"
+   - Click "Enable"
+4. Create API credentials:
+   - Go to "APIs & Services" → "Credentials"
+   - Click "Create Credentials" → "API Key"
+   - Copy your API key
+
+**Step 2: Create a Custom Search Engine**
+
+1. Go to [Google Programmable Search Engine](https://programmablesearchengine.google.com/)
+2. Click "Add" to create a new search engine
+3. Configure:
+   - **Sites to search**: Leave empty to search the entire web
+   - **Name**: "Contract Legal Resources" (or your choice)
+   - **Search the entire web**: Toggle ON
+4. Click "Create"
+5. Copy your **Search Engine ID** (cx parameter)
+
+**Step 3: Add to .env file**
+
+```bash
+# Add to your .env file
+GOOGLE_API_KEY=your_google_api_key_here
+GOOGLE_SEARCH_ENGINE_ID=your_search_engine_id_here
+```
+
+**Testing the Setup:**
+
+After adding these credentials, restart the application. The "Search for Legal Resources" button should now work. If not configured, you'll see an error message when clicking the button.
+
+**API Costs:**
+
+- Google Custom Search API: 100 free queries/day
+- After that: $5 per 1,000 queries
+- Typical usage: 1-2 queries per playbook (if you use the search feature)
 
 ---
 
@@ -194,7 +276,20 @@ The app will automatically use OpenAI if no Anthropic key is configured.
 - **Your Role**: Customer or Provider (tailors the analysis)
 - **Risk Tolerance**: Low, Moderate, or High
 
-### 3. Generate & Download
+### 3. (Optional) Search for Legal Resources
+
+Click **"Search for Legal Resources"** to enhance your playbook with external research:
+
+- Automatically searches for relevant checklists, legal articles, and best practices
+- Review search results and select relevant resources by clicking checkboxes
+- Click **"Save Selected Resources"** to include them in the AI analysis
+- Selected resources will be fetched and included as context for the playbook generation
+
+**Search Engines:**
+- **DuckDuckGo** (free, no API key required) - used by default
+- **Google Custom Search** (optional, requires API key) - for better results (see [Google Search Setup](#google-search-setup-optional))
+
+### 4. Generate & Download
 
 - Click **"Generate Playbook"**
 - Wait 2-5 minutes (progress shown)
