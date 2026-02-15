@@ -23,21 +23,84 @@ THIN_BORDER = Border(
 WRAP_ALIGNMENT = Alignment(wrap_text=True, vertical='top')
 ALT_ROW_FILL = PatternFill(start_color="F5F5F5", end_color="F5F5F5", fill_type="solid")
 
-# Column structure for clause analysis sheets
+# Column structure for clause analysis sheets (header names only, widths are auto-calculated)
 CLAUSE_COLUMNS = [
-    ("Section", 10),
-    ("Subsection", 12),
-    ("Issue", 25),
-    ("Current Language", 50),
-    ("Purpose/Rationale", 40),
-    ("Customer Concerns", 40),
-    ("Customer Edits to Watch", 35),
-    ("Provider Position", 40),
-    ("Acceptable Modifications", 40),
-    ("Fallback Language", 50),
-    ("Do Not Accept", 35),
-    ("Notes", 30)
+    "Section",
+    "Subsection",
+    "Issue",
+    "Current Language",
+    "Purpose/Rationale",
+    "Customer Concerns",
+    "Customer Edits to Watch",
+    "Provider Position",
+    "Acceptable Modifications",
+    "Fallback Language",
+    "Do Not Accept",
+    "Notes",
 ]
+
+# Min/max constraints for column widths (in characters)
+MIN_COL_WIDTH = 12
+MAX_COL_WIDTH = 65
+
+# Row height settings
+MIN_ROW_HEIGHT = 20
+MAX_ROW_HEIGHT = 200
+CHARS_PER_LINE = 60  # Approximate characters per line at typical column width
+LINE_HEIGHT_PTS = 15  # Points per line of text
+
+
+def auto_fit_columns(ws, min_width=MIN_COL_WIDTH, max_width=MAX_COL_WIDTH):
+    """Auto-fit column widths based on the longest content in each column."""
+    for col_cells in ws.columns:
+        col_letter = get_column_letter(col_cells[0].column)
+        max_len = 0
+        for cell in col_cells:
+            if cell.value is not None:
+                # For multi-line content, use the longest single line
+                text = str(cell.value)
+                lines = text.split('\n')
+                longest_line = max(len(line) for line in lines) if lines else 0
+                # Account for bold/header fonts being slightly wider
+                if cell.font and cell.font.bold:
+                    longest_line = int(longest_line * 1.1)
+                max_len = max(max_len, longest_line)
+        # Add padding, then clamp between min and max
+        width = min(max(max_len + 4, min_width), max_width)
+        ws.column_dimensions[col_letter].width = width
+
+
+def auto_fit_row_heights(ws, start_row=1, col_widths=None):
+    """Auto-fit row heights based on content and the column width it wraps into."""
+    for row in ws.iter_rows(min_row=start_row):
+        max_lines = 1
+        for cell in row:
+            if cell.value is not None:
+                text = str(cell.value)
+                col_letter = get_column_letter(cell.column)
+                col_width = col_widths.get(col_letter, MAX_COL_WIDTH) if col_widths else MAX_COL_WIDTH
+                # Approximate chars that fit per line in this column
+                chars_per_line = max(int(col_width * 1.2), 10)
+                # Count explicit newlines plus wrapped lines
+                lines = text.split('\n')
+                total_lines = 0
+                for line in lines:
+                    wrapped = max(1, -(-len(line) // chars_per_line))  # Ceiling division
+                    total_lines += wrapped
+                max_lines = max(max_lines, total_lines)
+        height = max(MIN_ROW_HEIGHT, min(max_lines * LINE_HEIGHT_PTS, MAX_ROW_HEIGHT))
+        ws.row_dimensions[row[0].row].height = height
+
+
+def auto_size_sheet(ws, start_row=1):
+    """Apply auto-fit to both columns and rows for a worksheet."""
+    auto_fit_columns(ws)
+    # Build a col_widths dict for row height calculation
+    col_widths = {}
+    for col_cells in ws.columns:
+        col_letter = get_column_letter(col_cells[0].column)
+        col_widths[col_letter] = ws.column_dimensions[col_letter].width
+    auto_fit_row_heights(ws, start_row=start_row, col_widths=col_widths)
 
 
 def generate_playbook_excel(playbook_data: dict, output_path: str):
@@ -129,9 +192,15 @@ def create_overview_sheet(wb: Workbook, overview: dict):
         ws.cell(row=row, column=1).alignment = WRAP_ALIGNMENT
         row += 1
 
-    # Set column widths
-    ws.column_dimensions["A"].width = 25
-    ws.column_dimensions["B"].width = 80
+    # Auto-fit columns and rows
+    auto_fit_columns(ws, min_width=25, max_width=90)
+    # Ensure column B is wide enough for long content
+    if ws.column_dimensions["B"].width < 60:
+        ws.column_dimensions["B"].width = 60
+    auto_fit_row_heights(ws, start_row=1, col_widths={
+        "A": ws.column_dimensions["A"].width,
+        "B": ws.column_dimensions["B"].width,
+    })
 
 
 def create_topic_sheet(wb: Workbook, topic_name: str, clauses: list):
@@ -143,13 +212,12 @@ def create_topic_sheet(wb: Workbook, topic_name: str, clauses: list):
     ws = wb.create_sheet(sheet_name)
 
     # Headers
-    for col_idx, (header, width) in enumerate(CLAUSE_COLUMNS, 1):
+    for col_idx, header in enumerate(CLAUSE_COLUMNS, 1):
         cell = ws.cell(row=1, column=col_idx, value=header)
         cell.font = HEADER_FONT
         cell.fill = HEADER_FILL
-        cell.alignment = Alignment(horizontal='center', vertical='center')
+        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
         cell.border = THIN_BORDER
-        ws.column_dimensions[get_column_letter(col_idx)].width = width
 
     # Freeze header row
     ws.freeze_panes = "A2"
@@ -176,9 +244,8 @@ def create_topic_sheet(wb: Workbook, topic_name: str, clauses: list):
             if row_idx % 2 == 0:
                 cell.fill = ALT_ROW_FILL
 
-    # Set row heights for better readability
-    for row in range(2, len(clauses) + 2):
-        ws.row_dimensions[row].height = 80
+    # Auto-fit columns and rows based on content (skip header row for row heights)
+    auto_size_sheet(ws, start_row=2)
 
 
 def create_quick_reference_sheet(wb: Workbook, quick_reference: list):
@@ -216,9 +283,14 @@ def create_quick_reference_sheet(wb: Workbook, quick_reference: list):
             issue_cell.fill = ALT_ROW_FILL
             limit_cell.fill = ALT_ROW_FILL
 
-    # Column widths
-    ws.column_dimensions["A"].width = 30
-    ws.column_dimensions["B"].width = 70
+    # Auto-fit columns and rows
+    auto_fit_columns(ws, min_width=25, max_width=80)
+    if ws.column_dimensions["B"].width < 60:
+        ws.column_dimensions["B"].width = 60
+    auto_fit_row_heights(ws, start_row=5, col_widths={
+        "A": ws.column_dimensions["A"].width,
+        "B": ws.column_dimensions["B"].width,
+    })
 
     # Freeze header
     ws.freeze_panes = "A5"
