@@ -11,9 +11,17 @@ load_dotenv()
 PORT = int(os.environ.get("PORT", 3005))
 DEBUG = os.environ.get("FLASK_DEBUG", "0") == "1"
 
-# File upload settings
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
-OUTPUT_FOLDER = os.path.join(os.path.dirname(__file__), "output")
+# Detect Vercel environment (Vercel automatically sets VERCEL=1)
+IS_VERCEL = os.environ.get("VERCEL", "") == "1"
+
+# File upload settings - use /tmp on Vercel (read-only filesystem except /tmp)
+if IS_VERCEL:
+    UPLOAD_FOLDER = "/tmp/uploads"
+    OUTPUT_FOLDER = "/tmp/output"
+else:
+    UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
+    OUTPUT_FOLDER = os.path.join(os.path.dirname(__file__), "output")
+
 MAX_FILE_SIZE_MB = int(os.environ.get("MAX_FILE_SIZE", 50))
 ALLOWED_EXTENSIONS = {"pdf", "docx", "xlsx"}
 
@@ -29,6 +37,7 @@ OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
 # Which provider to use (anthropic or openai)
 AI_PROVIDER = os.environ.get("AI_PROVIDER", "anthropic" if ANTHROPIC_API_KEY else "openai")
 
-# Ensure directories exist
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+# Ensure directories exist (skip on Vercel where filesystem is read-only)
+if not IS_VERCEL:
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)

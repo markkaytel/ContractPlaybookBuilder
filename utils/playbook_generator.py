@@ -6,6 +6,7 @@ matching professional legal playbook standards, organized by contract topic.
 """
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from anthropic import Anthropic
 import config
 
@@ -143,11 +144,8 @@ Provide your analysis as JSON with this structure:
         ("Exhibits & Schedules", "exhibits, schedules, appendices, and attachments")
     ]
 
-    for idx, (topic_name, topic_description) in enumerate(topics_to_analyze):
-        if progress_callback:
-            progress = 15 + int((idx / len(topics_to_analyze)) * 70)
-            progress_callback(progress, f"Analyzing {topic_name}...")
-
+    def _analyze_single_topic(topic_name, topic_description):
+        """Analyze a single contract topic. Designed to run in a thread."""
         topic_prompt = f"""Analyze this contract focusing specifically on {topic_description}.
 
 CONTRACT TEXT:
@@ -189,27 +187,44 @@ Return JSON with this structure:
 
 Be thorough - analyze EVERY clause related to {topic_name}. Include both explicit provisions AND important omissions that should be addressed."""
 
-        try:
-            topic_response = client.messages.create(
-                model=config.ANTHROPIC_MODEL,
-                max_tokens=8192,
-                messages=[
-                    {"role": "user", "content": topic_prompt}
-                ],
-                system=SYSTEM_PROMPT
-            )
+        topic_response = client.messages.create(
+            model=config.ANTHROPIC_MODEL,
+            max_tokens=8192,
+            messages=[
+                {"role": "user", "content": topic_prompt}
+            ],
+            system=SYSTEM_PROMPT
+        )
 
-            topic_text = topic_response.content[0].text
-            json_match = re.search(r'\{[\s\S]*\}', topic_text)
-            if json_match:
-                topic_data = json.loads(json_match.group())
-                if topic_data.get("clauses"):
-                    all_topics[topic_name] = topic_data["clauses"]
-                if topic_data.get("hard_limits"):
-                    quick_reference.extend(topic_data["hard_limits"])
-        except Exception as e:
-            print(f"Error analyzing {topic_name}: {e}")
-            continue
+        topic_text = topic_response.content[0].text
+        json_match = re.search(r'\{[\s\S]*\}', topic_text)
+        if json_match:
+            topic_data = json.loads(json_match.group())
+            return topic_name, topic_data.get("clauses", []), topic_data.get("hard_limits", [])
+        return topic_name, [], []
+
+    # Run topic analyses in parallel (5 workers balances speed vs rate limits)
+    completed_count = 0
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {}
+        for topic_name, topic_description in topics_to_analyze:
+            future = executor.submit(_analyze_single_topic, topic_name, topic_description)
+            futures[future] = topic_name
+
+        for future in as_completed(futures):
+            topic_name = futures[future]
+            completed_count += 1
+            if progress_callback:
+                progress = 15 + int((completed_count / len(topics_to_analyze)) * 70)
+                progress_callback(progress, f"Analyzed {topic_name} ({completed_count}/{len(topics_to_analyze)})")
+            try:
+                name, clauses, hard_limits = future.result()
+                if clauses:
+                    all_topics[name] = clauses
+                if hard_limits:
+                    quick_reference.extend(hard_limits)
+            except Exception as e:
+                print(f"Error analyzing {topic_name}: {e}")
 
     if progress_callback:
         progress_callback(90, "Compiling playbook...")
