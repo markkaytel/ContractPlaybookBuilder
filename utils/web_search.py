@@ -9,11 +9,74 @@ Supports multiple search backends:
 - DuckDuckGo HTML scraping (free fallback)
 """
 import os
+import ipaddress
+import socket
 import requests
 from bs4 import BeautifulSoup
 from typing import List, Dict, Optional
+from urllib.parse import urlparse
 import re
 import time
+
+
+# IP ranges that must never be fetched (SSRF protection)
+_BLOCKED_IP_NETWORKS = [
+    ipaddress.ip_network('0.0.0.0/8'),
+    ipaddress.ip_network('10.0.0.0/8'),
+    ipaddress.ip_network('100.64.0.0/10'),
+    ipaddress.ip_network('127.0.0.0/8'),
+    ipaddress.ip_network('169.254.0.0/16'),
+    ipaddress.ip_network('172.16.0.0/12'),
+    ipaddress.ip_network('192.0.0.0/24'),
+    ipaddress.ip_network('192.168.0.0/16'),
+    ipaddress.ip_network('198.18.0.0/15'),
+    ipaddress.ip_network('::1/128'),
+    ipaddress.ip_network('fc00::/7'),
+    ipaddress.ip_network('fe80::/10'),
+]
+
+
+def _is_safe_url(url: str) -> bool:
+    """
+    Validate that a URL is safe to fetch (SSRF protection).
+
+    Only allows https:// URLs that resolve to public IP addresses.
+    Blocks private/reserved IP ranges and non-HTTPS schemes.
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+
+    # Only allow HTTPS (block file://, gopher://, dict://, ftp://, http://, etc.)
+    if parsed.scheme != 'https':
+        return False
+
+    hostname = parsed.hostname
+    if not hostname:
+        return False
+
+    # Block obvious internal hostnames
+    if hostname in ('localhost', 'metadata.google.internal'):
+        return False
+
+    # Resolve hostname and check all resulting IPs
+    try:
+        addrinfos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror:
+        return False
+
+    for family, _, _, _, sockaddr in addrinfos:
+        ip_str = sockaddr[0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return False
+        for network in _BLOCKED_IP_NETWORKS:
+            if ip in network:
+                return False
+
+    return True
 
 
 def search_legal_resources(
@@ -331,13 +394,18 @@ def fetch_webpage_content(url: str, max_length: int = 5000) -> Dict[str, str]:
         'content': '',
         'error': None
     }
-    
+
+    # SSRF protection: only allow HTTPS URLs to public hosts
+    if not _is_safe_url(url):
+        result['error'] = "URL blocked: only HTTPS URLs to public hosts are allowed"
+        return result
+
     try:
         # Set a user agent to avoid being blocked
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
-        
+
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         
