@@ -25,6 +25,24 @@ const guidanceFilesList = document.getElementById('guidance-files-list');
 const guidanceFilesItems = document.getElementById('guidance-files-items');
 const clearGuidanceBtn = document.getElementById('clear-guidance-btn');
 
+// Topic Selection Elements
+const topicsSection = document.getElementById('topics-section');
+const standardTopicsList = document.getElementById('standard-topics-list');
+const aiTopicsList = document.getElementById('ai-topics-list');
+const aiTopicsGroup = document.getElementById('ai-topics-group');
+const customTopicsList = document.getElementById('custom-topics-list');
+const overviewTitle = document.getElementById('overview-title');
+const overviewSummary = document.getElementById('overview-executive-summary');
+const generateWithTopicsBtn = document.getElementById('generate-with-topics-btn');
+const topicsBackBtn = document.getElementById('topics-back-btn');
+const addCustomTopicBtn = document.getElementById('add-custom-topic-btn');
+const customTopicNameInput = document.getElementById('custom-topic-name');
+const customTopicDescInput = document.getElementById('custom-topic-description');
+const selectAllStandardBtn = document.getElementById('select-all-standard');
+const deselectAllStandardBtn = document.getElementById('deselect-all-standard');
+const selectAllAiBtn = document.getElementById('select-all-ai');
+const deselectAllAiBtn = document.getElementById('deselect-all-ai');
+
 // State
 let currentJobId = null;
 let statusPollInterval = null;
@@ -32,6 +50,8 @@ let reassuranceInterval = null;
 let reassuranceIndex = 0;
 let selectedResources = [];
 let searchResults = [];
+let suggestedTopics = [];
+let userCustomTopics = [];
 
 // Reassurance messages that rotate while processing
 const reassuranceMessages = [
@@ -238,51 +258,31 @@ uploadForm.addEventListener('submit', async (e) => {
                 });
             } catch (error) {
                 console.warn('Failed to save resources:', error);
-                // Continue anyway - not critical
             }
         }
 
-        // Show progress section
+        // Phase 1: Show progress while analyzing structure and getting topic suggestions
         showSection('progress');
-        updateProgress(5, 'Starting analysis...');
-        startReassuranceRotation();
+        updateProgress(5, 'Analyzing agreement structure...');
+        progressSubstatus.textContent = 'Identifying relevant topics and contract structure';
 
-        // Start polling for status updates - this is the primary completion detection
-        startPollingStatus(currentJobId);
+        try {
+            const analyzeResponse = await fetch(`/api/analyze/${currentJobId}`, {
+                method: 'POST'
+            });
 
-        // Start processing in background (don't await - it takes minutes)
-        // The polling will detect completion, but we also handle it here as backup
-        fetch(`/api/process/${currentJobId}`, {
-            method: 'POST'
-        }).then(response => response.json()).then(processData => {
-            // Processing complete - the polling should have already detected this
-            // but handle here as backup in case polling missed it
-            if (processData.status === 'completed') {
-                if (statusPollInterval) {
-                    clearInterval(statusPollInterval);
-                }
-                stopReassuranceRotation();
-                showSection('result');
-                downloadBtn.onclick = () => downloadPlaybook(currentJobId);
-            } else if (processData.status === 'error') {
-                if (statusPollInterval) {
-                    clearInterval(statusPollInterval);
-                }
-                stopReassuranceRotation();
-                showError(processData.error || 'Processing failed');
+            const analyzeData = await analyzeResponse.json();
+
+            if (!analyzeResponse.ok || analyzeData.status === 'error') {
+                throw new Error(analyzeData.error || 'Analysis failed');
             }
-            // If neither completed nor error, let polling continue to handle it
-        }).catch(error => {
-            // Only show error if we're still in processing state
-            // (polling might have already handled completion)
-            if (progressSection && !progressSection.classList.contains('hidden')) {
-                if (statusPollInterval) {
-                    clearInterval(statusPollInterval);
-                }
-                stopReassuranceRotation();
-                showError(error.message || 'Processing failed');
-            }
-        });
+
+            // Show topic selection UI
+            displayTopicSelection(analyzeData);
+            showSection('topics');
+        } catch (analyzeError) {
+            showError(analyzeError.message || 'Failed to analyze agreement');
+        }
 
     } catch (error) {
         showError(error.message);
@@ -356,6 +356,7 @@ async function downloadPlaybook(jobId) {
 // UI State Management
 function showSection(section) {
     uploadSection.classList.add('hidden');
+    topicsSection.classList.add('hidden');
     progressSection.classList.add('hidden');
     resultSection.classList.add('hidden');
     errorSection.classList.add('hidden');
@@ -363,6 +364,9 @@ function showSection(section) {
     switch (section) {
         case 'upload':
             uploadSection.classList.remove('hidden');
+            break;
+        case 'topics':
+            topicsSection.classList.remove('hidden');
             break;
         case 'progress':
             progressSection.classList.remove('hidden');
@@ -398,6 +402,14 @@ function startOver() {
     uploadForm.reset();
     removeFile();
     updateProgress(0, 'Starting analysis...');
+
+    // Reset topic state
+    suggestedTopics = [];
+    userCustomTopics = [];
+    standardTopicsList.innerHTML = '';
+    aiTopicsList.innerHTML = '';
+    customTopicsList.innerHTML = '';
+    aiTopicsGroup.classList.add('hidden');
 
     showSection('upload');
 }
@@ -636,6 +648,210 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// Topic Selection Functions
+
+function displayTopicSelection(analyzeData) {
+    // Display overview
+    overviewTitle.textContent = analyzeData.overview.title || 'Agreement Analysis';
+    overviewSummary.textContent = analyzeData.overview.executive_summary || '';
+
+    // Display standard topics
+    standardTopicsList.innerHTML = '';
+    const standardTopics = analyzeData.standard_topics || [];
+    standardTopics.forEach(topic => {
+        standardTopicsList.appendChild(createTopicItem(topic));
+    });
+
+    // Display AI-suggested additional topics
+    const additionalTopics = analyzeData.additional_topics || [];
+    if (additionalTopics.length > 0) {
+        aiTopicsGroup.classList.remove('hidden');
+        aiTopicsList.innerHTML = '';
+        additionalTopics.forEach(topic => {
+            aiTopicsList.appendChild(createTopicItem(topic));
+        });
+    } else {
+        aiTopicsGroup.classList.add('hidden');
+    }
+
+    // Clear custom topics
+    customTopicsList.innerHTML = '';
+    userCustomTopics = [];
+
+    // Store for reference
+    suggestedTopics = [...standardTopics, ...additionalTopics];
+}
+
+function createTopicItem(topic) {
+    const item = document.createElement('div');
+    item.className = 'topic-item';
+
+    const isChecked = topic.found_in_contract !== false && topic.relevance !== 'low';
+    if (isChecked) {
+        item.classList.add('checked');
+    }
+
+    const relevanceClass = topic.relevance || 'medium';
+
+    item.innerHTML = `
+        <label class="topic-label">
+            <input type="checkbox" class="topic-checkbox" ${isChecked ? 'checked' : ''}
+                data-name="${escapeHtml(topic.name)}"
+                data-description="${escapeHtml(topic.description || '')}"
+                data-is-standard="${topic.is_standard !== false}">
+            <div class="topic-info">
+                <div class="topic-name-row">
+                    <span class="topic-name">${escapeHtml(topic.name)}</span>
+                    <span class="topic-relevance ${relevanceClass}">${relevanceClass}</span>
+                </div>
+                <span class="topic-description">${escapeHtml(topic.description || '')}</span>
+            </div>
+        </label>
+    `;
+
+    const checkbox = item.querySelector('.topic-checkbox');
+    checkbox.addEventListener('change', () => {
+        item.classList.toggle('checked', checkbox.checked);
+    });
+
+    // Click anywhere on item to toggle
+    item.addEventListener('click', (e) => {
+        if (e.target.tagName !== 'INPUT') {
+            checkbox.checked = !checkbox.checked;
+            checkbox.dispatchEvent(new Event('change'));
+        }
+    });
+
+    return item;
+}
+
+// Select All / Deselect All handlers
+selectAllStandardBtn.addEventListener('click', () => {
+    standardTopicsList.querySelectorAll('.topic-checkbox').forEach(cb => {
+        cb.checked = true;
+        cb.closest('.topic-item').classList.add('checked');
+    });
+});
+
+deselectAllStandardBtn.addEventListener('click', () => {
+    standardTopicsList.querySelectorAll('.topic-checkbox').forEach(cb => {
+        cb.checked = false;
+        cb.closest('.topic-item').classList.remove('checked');
+    });
+});
+
+selectAllAiBtn.addEventListener('click', () => {
+    aiTopicsList.querySelectorAll('.topic-checkbox').forEach(cb => {
+        cb.checked = true;
+        cb.closest('.topic-item').classList.add('checked');
+    });
+});
+
+deselectAllAiBtn.addEventListener('click', () => {
+    aiTopicsList.querySelectorAll('.topic-checkbox').forEach(cb => {
+        cb.checked = false;
+        cb.closest('.topic-item').classList.remove('checked');
+    });
+});
+
+// Add Custom Topic
+addCustomTopicBtn.addEventListener('click', () => {
+    const name = customTopicNameInput.value.trim();
+    if (!name) return;
+
+    const description = customTopicDescInput.value.trim() || name;
+    const topic = {
+        name: name,
+        description: description,
+        relevance: 'custom',
+        found_in_contract: true,
+        is_standard: false
+    };
+
+    userCustomTopics.push(topic);
+
+    const item = createTopicItem(topic);
+    // Add remove button for custom topics
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'remove-custom-topic';
+    removeBtn.textContent = '\u00d7';
+    removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = userCustomTopics.indexOf(topic);
+        if (idx >= 0) userCustomTopics.splice(idx, 1);
+        item.remove();
+    });
+    item.appendChild(removeBtn);
+
+    // Pre-check custom topics
+    const checkbox = item.querySelector('.topic-checkbox');
+    checkbox.checked = true;
+    item.classList.add('checked');
+
+    customTopicsList.appendChild(item);
+
+    // Clear inputs
+    customTopicNameInput.value = '';
+    customTopicDescInput.value = '';
+});
+
+// Back button
+topicsBackBtn.addEventListener('click', () => {
+    showSection('upload');
+});
+
+// Generate Playbook with Selected Topics
+generateWithTopicsBtn.addEventListener('click', async () => {
+    // Collect selected topics
+    const selectedTopics = [];
+    topicsSection.querySelectorAll('.topic-checkbox:checked').forEach(cb => {
+        selectedTopics.push({
+            name: cb.dataset.name,
+            description: cb.dataset.description || cb.dataset.name
+        });
+    });
+
+    if (selectedTopics.length === 0) {
+        alert('Please select at least one topic for the playbook.');
+        return;
+    }
+
+    // Show progress
+    showSection('progress');
+    updateProgress(5, 'Starting playbook generation...');
+    startReassuranceRotation();
+
+    // Start polling
+    startPollingStatus(currentJobId);
+
+    // Fire Phase 2 processing with selected topics
+    fetch(`/api/process/${currentJobId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ selected_topics: selectedTopics })
+    }).then(response => response.json()).then(processData => {
+        if (processData.status === 'completed') {
+            if (statusPollInterval) clearInterval(statusPollInterval);
+            stopReassuranceRotation();
+            showSection('result');
+            downloadBtn.onclick = () => downloadPlaybook(currentJobId);
+        } else if (processData.status === 'error') {
+            if (statusPollInterval) clearInterval(statusPollInterval);
+            stopReassuranceRotation();
+            showError(processData.error || 'Processing failed');
+        }
+    }).catch(error => {
+        if (progressSection && !progressSection.classList.contains('hidden')) {
+            if (statusPollInterval) clearInterval(statusPollInterval);
+            stopReassuranceRotation();
+            showError(error.message || 'Processing failed');
+        }
+    });
+});
 
 // Health check on load
 document.addEventListener('DOMContentLoaded', async () => {

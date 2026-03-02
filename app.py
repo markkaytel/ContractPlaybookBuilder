@@ -11,7 +11,7 @@ from werkzeug.utils import secure_filename
 
 import config
 from utils.document_parser import parse_document, allowed_file
-from utils.playbook_generator import analyze_contract_chunked
+from utils.playbook_generator import analyze_contract_chunked, analyze_contract_overview, CONTRACT_TOPICS_WITH_DESCRIPTIONS
 from utils.excel_writer import generate_playbook_excel
 from utils.web_search import search_legal_resources, fetch_multiple_urls, format_web_resources_for_ai
 
@@ -107,6 +107,93 @@ def upload_file():
     })
 
 
+@app.route("/api/analyze/<job_id>", methods=["POST"])
+def analyze_file(job_id):
+    """
+    Phase 1: Parse document, fetch resources, and run overview analysis.
+    Returns AI-suggested topics for user selection.
+    """
+    if job_id not in processing_status:
+        return jsonify({"error": "Job not found"}), 404
+
+    job = processing_status[job_id]
+
+    try:
+        # Step 1: Parse main document
+        doc_data = parse_document(job["file_path"])
+        if not doc_data.get("text"):
+            raise ValueError("Could not extract text from the document. Please ensure it's not a scanned image.")
+
+        # Step 2: Parse guidance documents if provided
+        guidance_documents_text = ""
+        if job.get("guidance_files"):
+            guidance_texts = []
+            for guidance_file in job["guidance_files"]:
+                try:
+                    guidance_data = parse_document(guidance_file["path"])
+                    if guidance_data.get("text"):
+                        guidance_texts.append(f"--- Guidance Document: {guidance_file['filename']} ---\n{guidance_data['text']}")
+                except Exception as e:
+                    print(f"Warning: Could not parse guidance file {guidance_file['filename']}: {e}")
+            if guidance_texts:
+                guidance_documents_text = "\n\n".join(guidance_texts)
+
+        # Step 3: Fetch web resources if any were selected
+        web_resources_text = ""
+        if job.get("web_resources"):
+            web_resources_data = fetch_multiple_urls(job["web_resources"])
+            web_resources_text = format_web_resources_for_ai(web_resources_data)
+
+        # Step 4: Call AI overview analysis with topic suggestions
+        overview_data = analyze_contract_overview(
+            contract_text=doc_data["text"],
+            agreement_type=job["agreement_type"],
+            user_role=job["user_role"],
+            risk_tolerance=job["risk_tolerance"],
+            web_resources=web_resources_text,
+            guidance_documents=guidance_documents_text
+        )
+
+        # Step 5: Cache parsed data for Phase 2
+        processing_status[job_id]["doc_text"] = doc_data["text"]
+        processing_status[job_id]["guidance_text"] = guidance_documents_text
+        processing_status[job_id]["web_resources_text"] = web_resources_text
+        processing_status[job_id]["overview_data"] = overview_data
+        processing_status[job_id]["status"] = "topics_ready"
+
+        # Build combined topic list for frontend
+        suggested_topics = overview_data.get("suggested_topics", [])
+        additional_topics = overview_data.get("additional_topics", [])
+
+        # Ensure all standard topics are represented
+        suggested_names = {t["name"] for t in suggested_topics}
+        for name, desc in CONTRACT_TOPICS_WITH_DESCRIPTIONS:
+            if name not in suggested_names:
+                suggested_topics.append({
+                    "name": name,
+                    "description": desc,
+                    "relevance": "low",
+                    "found_in_contract": False,
+                    "is_standard": True
+                })
+
+        return jsonify({
+            "status": "topics_ready",
+            "overview": {
+                "title": overview_data.get("title", job["agreement_type"]),
+                "executive_summary": overview_data.get("executive_summary", ""),
+                "parties": overview_data.get("parties", ""),
+            },
+            "standard_topics": suggested_topics,
+            "additional_topics": additional_topics
+        })
+
+    except Exception as e:
+        processing_status[job_id]["status"] = "error"
+        processing_status[job_id]["error"] = str(e)
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
 @app.route("/api/process/<job_id>", methods=["POST"])
 def process_file(job_id):
     """
@@ -123,53 +210,74 @@ def process_file(job_id):
     if job["status"] == "error":
         return jsonify({"status": "error", "error": job["error"]})
 
+    # Read optional selected_topics from JSON body
+    request_data = request.get_json(silent=True) or {}
+    selected_topics = request_data.get("selected_topics", None)
+
+    # Set status to processing for Phase 2
+    processing_status[job_id]["status"] = "processing"
+    processing_status[job_id]["progress"] = 0
+
     try:
         # Update progress callback
         def update_progress(progress, message):
             processing_status[job_id]["progress"] = progress
             processing_status[job_id]["message"] = message
 
-        # Step 1: Parse document
-        update_progress(10, "Parsing document...")
-        doc_data = parse_document(job["file_path"])
+        # Check if Phase 1 data is cached (from /api/analyze)
+        if job.get("doc_text"):
+            doc_text = job["doc_text"]
+            guidance_documents_text = job.get("guidance_text", "")
+            web_resources_text = job.get("web_resources_text", "")
+            overview_data = job.get("overview_data", None)
+            update_progress(10, "Using cached document analysis...")
+        else:
+            # Backward compatible: parse fresh if no cached data
+            update_progress(10, "Parsing document...")
+            doc_data = parse_document(job["file_path"])
 
-        if not doc_data.get("text"):
-            raise ValueError("Could not extract text from the document. Please ensure it's not a scanned image.")
+            if not doc_data.get("text"):
+                raise ValueError("Could not extract text from the document. Please ensure it's not a scanned image.")
+            doc_text = doc_data["text"]
 
-        # Step 2: Parse guidance documents if provided
-        guidance_documents_text = ""
-        if job.get("guidance_files"):
-            update_progress(15, f"Parsing {len(job['guidance_files'])} guidance document(s)...")
-            guidance_texts = []
-            for guidance_file in job["guidance_files"]:
-                try:
-                    guidance_data = parse_document(guidance_file["path"])
-                    if guidance_data.get("text"):
-                        guidance_texts.append(f"--- Guidance Document: {guidance_file['filename']} ---\n{guidance_data['text']}")
-                except Exception as e:
-                    print(f"Warning: Could not parse guidance file {guidance_file['filename']}: {e}")
-            
-            if guidance_texts:
-                guidance_documents_text = "\n\n".join(guidance_texts)
-        
-        # Step 3: Analyze with AI
+            # Parse guidance documents if provided
+            guidance_documents_text = ""
+            if job.get("guidance_files"):
+                update_progress(15, f"Parsing {len(job['guidance_files'])} guidance document(s)...")
+                guidance_texts = []
+                for guidance_file in job["guidance_files"]:
+                    try:
+                        guidance_data = parse_document(guidance_file["path"])
+                        if guidance_data.get("text"):
+                            guidance_texts.append(f"--- Guidance Document: {guidance_file['filename']} ---\n{guidance_data['text']}")
+                    except Exception as e:
+                        print(f"Warning: Could not parse guidance file {guidance_file['filename']}: {e}")
+
+                if guidance_texts:
+                    guidance_documents_text = "\n\n".join(guidance_texts)
+
+            # Include web resources if any were selected
+            web_resources_text = ""
+            if job.get("web_resources"):
+                update_progress(20, "Fetching selected web resources...")
+                web_resources_data = fetch_multiple_urls(job["web_resources"])
+                web_resources_text = format_web_resources_for_ai(web_resources_data)
+
+            overview_data = None
+
+        # Analyze with AI
         update_progress(20, "Analyzing contract with AI...")
-        
-        # Include web resources if any were selected
-        web_resources_text = ""
-        if job.get("web_resources"):
-            update_progress(20, "Fetching selected web resources...")
-            web_resources_data = fetch_multiple_urls(job["web_resources"])
-            web_resources_text = format_web_resources_for_ai(web_resources_data)
-        
+
         playbook_data = analyze_contract_chunked(
-            contract_text=doc_data["text"],
+            contract_text=doc_text,
             agreement_type=job["agreement_type"],
             user_role=job["user_role"],
             risk_tolerance=job["risk_tolerance"],
             progress_callback=lambda p, m: update_progress(20 + int(p * 0.6), m),
             web_resources=web_resources_text,
-            guidance_documents=guidance_documents_text
+            guidance_documents=guidance_documents_text,
+            selected_topics=selected_topics,
+            overview_data=overview_data
         )
 
         # Step 3: Generate Excel

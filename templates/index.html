@@ -154,6 +154,61 @@
                 </form>
             </section>
 
+            <!-- Topic Selection Section -->
+            <section id="topics-section" class="card hidden">
+                <h2>Select Playbook Topics</h2>
+                <p class="topics-subtitle">The AI has analyzed your agreement. Select which topics to include in your playbook.</p>
+
+                <!-- Overview Summary -->
+                <div id="overview-summary" class="overview-summary">
+                    <h3 id="overview-title"></h3>
+                    <p id="overview-executive-summary"></p>
+                </div>
+
+                <!-- Standard Topics -->
+                <div class="topics-group">
+                    <div class="topics-group-header">
+                        <h3>Standard Topics</h3>
+                        <div class="topics-group-actions">
+                            <button type="button" class="btn-link" id="select-all-standard">Select All</button>
+                            <span class="topics-divider">|</span>
+                            <button type="button" class="btn-link" id="deselect-all-standard">Deselect All</button>
+                        </div>
+                    </div>
+                    <div id="standard-topics-list" class="topics-list"></div>
+                </div>
+
+                <!-- AI-Suggested Additional Topics -->
+                <div id="ai-topics-group" class="topics-group hidden">
+                    <div class="topics-group-header">
+                        <h3>AI-Suggested Additional Topics</h3>
+                        <div class="topics-group-actions">
+                            <button type="button" class="btn-link" id="select-all-ai">Select All</button>
+                            <span class="topics-divider">|</span>
+                            <button type="button" class="btn-link" id="deselect-all-ai">Deselect All</button>
+                        </div>
+                    </div>
+                    <div id="ai-topics-list" class="topics-list"></div>
+                </div>
+
+                <!-- Add Custom Topic -->
+                <div class="add-topic-section">
+                    <h3>Add Custom Topic</h3>
+                    <div class="add-topic-form">
+                        <input type="text" id="custom-topic-name" class="text-input" placeholder="Topic name (e.g., Insurance Requirements)">
+                        <input type="text" id="custom-topic-description" class="text-input" placeholder="Brief description (optional)">
+                        <button type="button" class="btn btn-secondary" id="add-custom-topic-btn" style="width: auto; margin: 0;">Add Topic</button>
+                    </div>
+                    <div id="custom-topics-list" class="topics-list" style="margin-top: 0.75rem;"></div>
+                </div>
+
+                <!-- Actions -->
+                <div class="topics-actions">
+                    <button type="button" class="btn btn-secondary" id="topics-back-btn" style="width: auto; flex: 0 0 auto;">Back</button>
+                    <button type="button" class="btn btn-primary" id="generate-with-topics-btn" style="flex: 1;">Generate Playbook with Selected Topics</button>
+                </div>
+            </section>
+
             <!-- Progress Section -->
             <section id="progress-section" class="card hidden">
                 <h2>Generating Playbook</h2>
